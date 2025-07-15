@@ -1,9 +1,5 @@
-streamlit==1.36.0
-tensorflow-cpu==2.12.0
-pillow==10.1.0
-numpy==1.24.0
-huggingface-hub==0.16.0
-markdown-it-py==2.2.0
-rich==13.7.0  # Versão anterior estável
-pygments==2.15.1
-mdurl==0.1.1
+streamlit
+tensorflow>=2.18.0,<2.19.0
+numpy
+pillow
+huggingface_hub
