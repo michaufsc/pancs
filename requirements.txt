@@ -1,6 +1,23 @@
+# Atualiza pip para evitar erros
+pip>=25.1.1
+
+# Streamlit para app web
 streamlit==1.25.0
+
+# TensorFlow versão compatível com seu modelo
 tensorflow==2.18.0
+
+# Numpy versão estável
 numpy==1.24.4
+
+# Pillow para manipulação de imagens
 pillow==10.0.0
+
+# Hugging Face Hub para baixar o modelo
 huggingface_hub==0.16.4
 
+# Dependências extras do streamlit e rich que aparecem no log
+rich==14.0.0
+markdown-it-py==3.0.0
+pygments==2.19.2
+mdurl==0.1.2
