@@ -1,18 +1,20 @@
-import sys
-import warnings
-warnings.filterwarnings("ignore", category=UserWarning)
-
-# Força versões específicas para evitar conflitos
-os.environ['PYGMENTS_VERSION'] = '2.19.2'
-os.environ['MDURL_VERSION'] = '0.1.2'
-import streamlit as st
-import tensorflow as tf
-import numpy as np
-from PIL import Image
 import os
 import sys
-from huggingface_hub import hf_hub_download
+os.environ['PYTHONWARNINGS'] = 'ignore::UserWarning'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Silencia logs do TensorFlow
 
+# Bloqueia reinstalações de dependências críticas
+os.environ['PIP_NO_DEPS'] = 'True'
+os.environ['PYTHONNOUSERSITE'] = '1'
+
+import warnings
+warnings.filterwarnings("ignore")
+
+import streamlit as st
+import tensorflow as tf
+from PIL import Image
+import numpy as np
+from huggingface_hub import hf_hub_download
 # ======================
 # CONFIGURAÇÕES
 # ======================
