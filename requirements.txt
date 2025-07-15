@@ -1,5 +1,5 @@
-streamlit
-tensorflow>=2.18.0,<2.19.0
+streamlit>=1.25
+tensorflow>=2.15,<2.19
+Pillow
 numpy
-pillow
 huggingface_hub
