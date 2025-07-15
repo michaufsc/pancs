@@ -1,3 +1,10 @@
+import sys
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+
+# Força versões específicas para evitar conflitos
+os.environ['PYGMENTS_VERSION'] = '2.19.2'
+os.environ['MDURL_VERSION'] = '0.1.2'
 import streamlit as st
 import tensorflow as tf
 import numpy as np
