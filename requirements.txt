@@ -1,5 +1,9 @@
-streamlit>=1.36.0
+streamlit==1.36.0
 tensorflow-cpu==2.16.1
-numpy>=1.24.4
-Pillow>=10.0.0
-huggingface_hub>=0.16.4
+numpy==1.24.4
+Pillow==10.0.0
+huggingface_hub==0.16.4
+markdown-it-py==3.0.0
+rich==14.0.0
+pygments==2.19.2
+mdurl==0.1.2
