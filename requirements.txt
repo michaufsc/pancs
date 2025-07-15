@@ -1,5 +1,6 @@
 streamlit==1.25.0
-tensorflow==2.18.0
+tensorflow-cpu==2.18.0
 numpy==1.24.4
-pillow==10.0.0
+Pillow==10.0.0
 huggingface_hub==0.16.4
+
