@@ -1,5 +1,9 @@
 streamlit==1.36.0
-tensorflow-cpu==2.18.0  # ★ Mesma versão do Colab ★
-numpy==1.26.0  # Versão exigida pelo TF 2.18
+tensorflow-cpu==2.18.0
+numpy==1.26.0
 Pillow==10.0.0
 huggingface_hub==0.16.4
+markdown-it-py==3.0.0
+rich==14.0.0
+pygments==2.19.2
+mdurl==0.1.2
