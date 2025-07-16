@@ -15,19 +15,25 @@ CLASSES_FILENAME = "labels.txt"
 
 # --- FUNÇÕES PRINCIPAIS ---
 
-def criar_arquitetura_compativel(num_classes):
-    """Cria uma arquitetura compatível com o modelo original"""
-    inputs = tf.keras.Input(shape=(224, 224, 3), name='input_layer')
+def criar_arquitetura_customizada(input_shape=(224, 224, 3), num_classes=213):
+    """Cria uma arquitetura CNN customizada compatível"""
+    inputs = tf.keras.Input(shape=input_shape, name='input_layer')
     
-    # Camadas convolucionais (ajustar conforme arquitetura real)
-    x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu')(inputs)
-    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
-    x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu')(x)
-    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
-    x = tf.keras.layers.Conv2D(128, (3, 3), activation='relu')(x)
+    # Bloco 1
+    x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
+    x = tf.keras.layers.MaxPooling2D((2, 2), padding='same')(x)
+    
+    # Bloco 2
+    x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+    x = tf.keras.layers.MaxPooling2D((2, 2), padding='same')(x)
+    
+    # Bloco 3
+    x = tf.keras.layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
+    x = tf.keras.layers.MaxPooling2D((2, 2), padding='same')(x)
+    
+    # Camadas fully connected
     x = tf.keras.layers.Flatten()(x)
-    
-    # Camada densa final com número correto de classes
+    x = tf.keras.layers.Dense(512, activation='relu')(x)
     outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
     
     return tf.keras.Model(inputs=inputs, outputs=outputs)
@@ -41,30 +47,44 @@ def carregar_modelo():
             token=API_TOKEN if API_TOKEN else None
         )
         
-        # Carrega as classes primeiro para saber o número de saídas necessárias
         classes = carregar_classes()
         num_classes = len(classes)
         
-        # 1. Tentativa de carregamento direto
+        # Estratégia 1: Tentar carregar com safe_mode=False
         try:
-            model = tf.keras.models.load_model(model_path, compile=False)
+            model = tf.keras.models.load_model(model_path, compile=False, safe_mode=False)
             model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+            st.success("Modelo carregado com sucesso (método direto)!")
             return model
         except Exception as e:
-            st.warning(f"Carregamento direto falhou: {str(e)}. Tentando abordagem alternativa...")
-            
-            # 2. Abordagem alternativa - reconstruir arquitetura
-            new_model = criar_arquitetura_compativel(num_classes)
-            
-            # Carregar pesos manualmente, ignorando incompatibilidades
-            new_model.load_weights(model_path, by_name=True, skip_mismatch=True)
-            
-            st.warning("Algumas camadas podem não ter carregado corretamente. Verifique o desempenho.")
-            new_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-            return new_model
-            
+            st.warning(f"Falha no carregamento direto: {str(e)}")
+        
+        # Estratégia 2: Reconstruir arquitetura e carregar pesos
+        st.info("Tentando reconstruir arquitetura manualmente...")
+        new_model = criar_arquitetura_customizada(num_classes=num_classes)
+        
+        # Verifica quais pesos podem ser carregados
+        with h5py.File(model_path, 'r') as f:
+            layer_names = [n.decode('utf8') for n in f.attrs['layer_names']]
+            st.write(f"Camadas disponíveis no arquivo: {layer_names}")
+        
+        # Carrega pesos compatíveis
+        load_status = new_model.load_weights(model_path, by_name=True)
+        
+        # Mostra status do carregamento
+        if load_status:
+            st.warning("Aviso: Algumas camadas não carregaram corretamente:")
+            for layer in new_model.layers:
+                if not layer.weights:
+                    st.write(f"- {layer.name}: Não carregado")
+                else:
+                    st.write(f"+ {layer.name}: Carregado")
+        
+        new_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+        return new_model
+        
     except Exception as e:
-        st.error(f"Erro crítico ao carregar modelo: {str(e)}")
+        st.error(f"Erro crítico: {str(e)}")
         raise RuntimeError(f"Falha ao carregar modelo: {e}")
 
 @st.cache_resource
@@ -76,59 +96,90 @@ def carregar_classes():
             token=API_TOKEN if API_TOKEN else None
         )
         with open(classes_path, "r", encoding="utf-8") as f:
-            return [linha.strip() for linha in f if linha.strip()]
+            classes = [linha.strip() for linha in f if linha.strip()]
+            if not classes:
+                raise ValueError("Arquivo de classes vazio")
+            return classes
     except:
-        return [f"Classe {i}" for i in range(213)]  # Fallback baseado no shape esperado
+        st.warning("Usando classes fallback (213 classes)")
+        return [f"Classe {i}" for i in range(213)]
 
 def preprocess_image(image, target_size=(224, 224)):
-    """Pré-processamento padrão para modelos CNN"""
+    """Pré-processamento completo da imagem"""
     img = image.convert("RGB").resize(target_size)
     img_array = tf.keras.utils.img_to_array(img)
-    img_array = tf.expand_dims(img_array, 0)  # Adiciona dimensão do batch
+    img_array = tf.expand_dims(img_array, axis=0)
     return img_array / 255.0  # Normalização
 
 def mostrar_resultados(predictions, classes):
-    """Exibe os resultados de forma organizada"""
-    st.subheader("🔍 Resultados da Identificação")
-    top_indices = np.argsort(predictions[0])[::-1][:5]  # Top 5 resultados
+    """Exibe resultados formatados"""
+    st.subheader("📊 Resultados da Classificação")
     
+    top_k = 5
+    top_indices = np.argsort(predictions[0])[::-1][:top_k]
+    
+    cols = st.columns(top_k)
     for i, idx in enumerate(top_indices):
-        confianca = float(predictions[0][idx])
-        label = classes[idx]
-        
-        # Barra de progresso colorida
-        st.metric(label=f"{i+1}º: {label}", value=f"{confianca:.2%}")
-        st.progress(confianca)
+        with cols[i]:
+            conf = float(predictions[0][idx])
+            st.metric(
+                label=classes[idx],
+                value=f"{conf:.1%}",
+                help=f"Confiança: {conf:.2%}"
+            )
+            st.progress(conf)
 
-# --- INTERFACE STREAMLIT ---
+# --- INTERFACE ---
 def main():
     st.set_page_config(
         page_title="Identificador de PANCs",
         page_icon="🌿",
-        layout="centered"
+        layout="wide"
     )
     
-    st.title("🌿 Identificador de PANCs")
-    st.write("Envie uma imagem de planta para identificação")
+    st.title("🌿 Identificador de Plantas Alimentícias Não Convencionais")
     
-    uploaded_file = st.file_uploader("Selecione uma imagem...", type=["jpg", "jpeg", "png"])
+    with st.expander("ℹ️ Como usar", expanded=True):
+        st.write("""
+        1. Faça upload de uma imagem de planta
+        2. Clique em 'Identificar'
+        3. Veja os resultados classificados por confiança
+        """)
     
-    if uploaded_file is not None:
-        try:
+    col1, col2 = st.columns([1, 2])
+    
+    with col1:
+        uploaded_file = st.file_uploader(
+            "Selecione uma imagem...",
+            type=["jpg", "jpeg", "png"],
+            accept_multiple_files=False
+        )
+        
+        if uploaded_file:
             image = Image.open(uploaded_file)
-            st.image(image, caption="Imagem enviada", use_container_width=True)
+            st.image(image, use_container_width=True)
             
-            if st.button("Identificar Planta"):
+            if st.button("🔍 Identificar Planta", type="primary"):
                 with st.spinner("Processando..."):
-                    model = carregar_modelo()
-                    classes = carregar_classes()
-                    input_data = preprocess_image(image)
-                    predictions = model.predict(input_data, verbose=0)
-                    mostrar_resultados(predictions, classes)
-                    
-        except Exception as e:
-            st.error("Erro ao processar a imagem")
-            st.code(traceback.format_exc())
+                    try:
+                        model = carregar_modelo()
+                        classes = carregar_classes()
+                        input_data = preprocess_image(image)
+                        predictions = model.predict(input_data, verbose=0)
+                        mostrar_resultados(predictions, classes)
+                    except Exception as e:
+                        st.error(f"Erro durante a identificação: {str(e)}")
+                        st.code(traceback.format_exc())
+
+    with col2:
+        st.subheader("📝 Informações Técnicas")
+        if st.checkbox("Mostrar detalhes do modelo"):
+            try:
+                model = carregar_modelo()
+                st.text("Arquitetura do modelo:")
+                st.text(model.summary())
+            except:
+                st.warning("Modelo ainda não carregado")
 
 if __name__ == "__main__":
     main()
