@@ -1,6 +1,7 @@
-streamlit==1.26.0
-huggingface-hub>=0.11.1
-tensorflow-cpu==2.10.0  # Versão específica com melhor compatibilidade
-numpy==1.23.5  # Versão testada com TF 2.10
-Pillow==9.5.0  # Versão compatível com Streamlit
-protobuf==3.20.3
+streamlit==1.32.0
+tensorflow==2.15.0  # ou tensorflow-cpu se não tiver GPU
+pillow==10.1.0
+requests==2.31.0
+numpy==1.26.0
+huggingface-hub==0.20.3
+protobuf==3.20.3  # Pode ser necessário para compatibilidade com TensorFlow
