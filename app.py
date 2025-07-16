@@ -16,7 +16,8 @@ CLASSES_FILENAME = "labels.txt"
 API_URL = f"https://api-inference.huggingface.co/models/{REPO_ID}"
 
 # --- FUNÇÕES ---
-@st.cache_resource(show_spinner="Carregando modelo...")
+
+@st.cache_resource(show_spinner="🔄 Carregando modelo...")
 def carregar_modelo():
     try:
         model_path = hf_hub_download(
@@ -25,17 +26,13 @@ def carregar_modelo():
             cache_dir=".",
             token=API_TOKEN if API_TOKEN else None
         )
-        # Verifica se o arquivo do modelo existe e tem tamanho razoável
         if not os.path.exists(model_path) or os.path.getsize(model_path) < 1024:
             raise ValueError("Arquivo do modelo inválido ou corrompido")
-            
         model = tf.keras.models.load_model(model_path, compile=False)
-        if model is None:
-            raise ValueError("Falha ao carregar o modelo - retornou None")
         model.compile()
         return model
     except Exception as e:
-        st.error(f"Erro ao carregar modelo: {str(e)}")
+        st.error(f"❌ Erro ao carregar modelo: {str(e)}")
         st.stop()
 
 @st.cache_resource
@@ -50,32 +47,43 @@ def carregar_classes():
         with open(classes_path, "r", encoding="utf-8") as f:
             classes = [linha.strip() for linha in f]
             if not classes:
-                raise ValueError("Nenhuma classe carregada")
+                raise ValueError("Arquivo de classes está vazio.")
             return classes
     except Exception as e:
-        st.error(f"Erro ao carregar classes: {str(e)}")
+        st.error(f"❌ Erro ao carregar classes: {str(e)}")
         st.stop()
-
-def query_huggingface_api(image_bytes):
-    if not API_TOKEN:
-        st.error("Token do Hugging Face não configurado.")
-        return None
-
-    try:
-        response = requests.post(API_URL, headers=HEADERS, data=image_bytes, timeout=30)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            st.error(f"Erro na API: {response.status_code} - {response.text}")
-            return None
-    except requests.exceptions.RequestException as e:
-        st.error(f"Erro na conexão com a API: {str(e)}")
-        return None
 
 def preprocess_image(image, target_size=(224, 224)):
     img = image.resize(target_size)
     img_array = tf.keras.utils.img_to_array(img)
-    img_array = tf.keras.applications.mobilenet_v2.preprocess_input(img_array)  # Ajuste conforme seu modelo
+    img_array = tf.keras.applications.mobilenet_v2.preprocess_input(img_array)
     return np.expand_dims(img_array, axis=0)
 
-# ... (o resto do código permanece igual com as melhorias sugeridas)
+# --- INTERFACE PRINCIPAL ---
+def main():
+    st.set_page_config(page_title="Identificador de PANCs", layout="centered")
+    st.title("🌿 Identificador de Plantas Alimentícias Não Convencionais (PANCs)")
+    st.write("Envie uma imagem de uma planta para identificar a espécie.")
+
+    uploaded_file = st.file_uploader("📷 Escolha uma imagem...", type=["jpg", "jpeg", "png"])
+
+    if uploaded_file is not None:
+        image = Image.open(uploaded_file)
+        st.image(image, caption="Imagem enviada", use_column_width=True)
+
+        if st.button("🔍 Identificar"):
+            with st.spinner("Processando imagem..."):
+                model = carregar_modelo()
+                classes = carregar_classes()
+                input_data = preprocess_image(image)
+                predictions = model.predict(input_data)[0]
+
+                top_index = int(np.argmax(predictions))
+                confidence = float(predictions[top_index])
+                predicted_label = classes[top_index]
+
+                st.success(f"🌱 Previsão: **{predicted_label}** com confiança de {confidence:.2%}")
+
+# --- EXECUÇÃO ---
+if __name__ == "__main__":
+    main()
