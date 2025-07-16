@@ -6,175 +6,193 @@ from huggingface_hub import hf_hub_download
 import os
 import traceback
 
-# --- CONFIGURAÇÃO ---
+# --- CONFIGURAÇÕES ---
 API_TOKEN = st.secrets.get("HF_TOKEN", "")
 REPO_ID = "michaufsc27/pancs_modelo"
 MODEL_FILENAME = "modelo_pancs.h5"
 CLASSES_FILENAME = "labels.txt"
 
-# --- ARQUITETURA DO MODELO ---
+# --- ARQUITETURA DO MODELO OTIMIZADA ---
+def construir_modelo_otimizado(num_classes):
+    """Cria uma arquitetura mais eficiente para classificação de plantas"""
+    inputs = tf.keras.Input(shape=(224, 224, 3))
+    
+    # Camada de pré-processamento
+    x = tf.keras.layers.Rescaling(1./255)(inputs)
+    
+    # Blocos convolucionais com BatchNorm e Dropout
+    x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+    x = tf.keras.layers.Dropout(0.3)(x)
+    
+    x = tf.keras.layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+    x = tf.keras.layers.Dropout(0.4)(x)
+    
+    x = tf.keras.layers.Conv2D(256, (3, 3), activation='relu', padding='same')(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+    x = tf.keras.layers.Dropout(0.5)(x)
+    
+    # Camadas densas
+    x = tf.keras.layers.Flatten()(x)
+    x = tf.keras.layers.Dense(512, activation='relu')(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.Dropout(0.5)(x)
+    
+    # Saída
+    outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
+    
+    model = tf.keras.Model(inputs=inputs, outputs=outputs)
+    
+    # Compilação com otimização
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
+        loss='categorical_crossentropy',
+        metrics=['accuracy']
+    )
+    
+    return model
 
-def criar_modelo_pancs(num_classes):
-    """Cria a arquitetura exata do modelo PANCs com shapes corretos"""
-    inputs = tf.keras.Input(shape=(224, 224, 3), name='input_layer')
-    
-    # Bloco 1
-    x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu', padding='same', name='conv2d_1')(inputs)
-    x = tf.keras.layers.MaxPooling2D((2, 2), name='max_pooling2d_1')(x)
-    
-    # Bloco 2
-    x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', padding='same', name='conv2d_2')(x)
-    x = tf.keras.layers.MaxPooling2D((2, 2), name='max_pooling2d_2')(x)
-    
-    # Bloco 3
-    x = tf.keras.layers.Conv2D(128, (3, 3), activation='relu', padding='same', name='conv2d_3')(x)
-    x = tf.keras.layers.MaxPooling2D((2, 2), name='max_pooling2d_3')(x)
-    
-    # Camadas Densas (ajustadas para o shape 86528, 128)
-    x = tf.keras.layers.Flatten(name='flatten')(x)
-    x = tf.keras.layers.Dense(128, activation='relu', name='dense_1')(x)  # Ajustado para 128 unidades
-    outputs = tf.keras.layers.Dense(num_classes, activation='softmax', name='dense_2')(x)
-    
-    return tf.keras.Model(inputs=inputs, outputs=outputs)
-
-# --- CARREGAMENTO DO MODELO ---
-
-@st.cache_resource(show_spinner="🔄 Carregando modelo...")
-def carregar_modelo():
+# --- CARREGAMENTO INTELIGENTE ---
+@st.cache_resource(show_spinner="🔄 Carregando e otimizando modelo...")
+def carregar_modelo_otimizado():
     try:
-        model_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename=MODEL_FILENAME,
-            token=API_TOKEN if API_TOKEN else None
-        )
-        
-        # Carrega classes primeiro para determinar número de saídas
+        # Carrega classes primeiro
         classes = carregar_classes()
         num_classes = len(classes)
         
-        # 1. Tentar carregar o modelo diretamente
-        try:
-            model = tf.keras.models.load_model(model_path, compile=False)
-            model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-            st.success("Modelo carregado com sucesso!")
-            return model
-        except Exception as e:
-            st.warning(f"Carregamento direto falhou: {str(e)}")
-            st.info("Reconstruindo modelo com arquitetura personalizada...")
+        # Cria novo modelo otimizado
+        novo_modelo = construir_modelo_otimizado(num_classes)
         
-        # 2. Reconstruir modelo com arquitetura correta
-        model = criar_modelo_pancs(num_classes)
-        
-        # Carregar pesos compatíveis
+        # Tenta carregar pesos compatíveis do modelo antigo
         try:
-            # Lista de camadas cujos pesos podem ser carregados
-            camadas_compatíveis = [
-                'conv2d_1', 'conv2d_2', 'conv2d_3',
-                'max_pooling2d_1', 'max_pooling2d_2', 'max_pooling2d_3',
-                'flatten', 'dense_1'
-            ]
+            model_path = hf_hub_download(
+                repo_id=REPO_ID,
+                filename=MODEL_FILENAME,
+                token=API_TOKEN if API_TOKEN else None
+            )
             
             # Carrega apenas as camadas compatíveis
-            for layer in model.layers:
-                if layer.name in camadas_compatíveis:
-                    try:
-                        layer_weights = tf.keras.models.load_model(model_path).get_layer(layer.name).get_weights()
-                        layer.set_weights(layer_weights)
-                        st.write(f"✓ Pesos carregados para camada: {layer.name}")
-                    except:
-                        st.write(f"✗ Não foi possível carregar pesos para: {layer.name}")
+            modelo_antigo = tf.keras.models.load_model(model_path, compile=False)
+            
+            for layer in novo_modelo.layers:
+                try:
+                    if layer.name in [l.name for l in modelo_antigo.layers]:
+                        layer.set_weights(modelo_antigo.get_layer(layer.name).get_weights())
+                        st.success(f"✓ Transferidos pesos para: {layer.name}")
+                except:
+                    st.warning(f"✗ Pesos incompatíveis para: {layer.name}")
         
         except Exception as e:
-            st.warning(f"Erro ao carregar pesos: {str(e)}")
-            st.warning("Algumas camadas serão inicializadas com pesos aleatórios")
+            st.warning(f"Não foi possível carregar pesos existentes: {str(e)}")
+            st.info("Modelo será treinado do zero quando necessário")
         
-        model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-        return model
+        return novo_modelo
         
     except Exception as e:
         st.error(f"Erro crítico: {str(e)}")
-        raise RuntimeError(f"Falha ao carregar modelo: {e}")
+        raise RuntimeError(f"Falha ao inicializar modelo: {e}")
 
-@st.cache_resource
-def carregar_classes():
-    try:
-        classes_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename=CLASSES_FILENAME,
-            token=API_TOKEN if API_TOKEN else None
-        )
-        with open(classes_path, "r", encoding="utf-8") as f:
-            classes = [linha.strip() for linha in f if linha.strip()]
-            if not classes:
-                raise ValueError("Arquivo de classes vazio")
-            return classes
-    except:
-        st.warning("Usando classes fallback (128 classes)")
-        return [f"Planta {i}" for i in range(128)]
-
-# --- PRÉ-PROCESSAMENTO ---
-
-def preprocess_image(image, target_size=(224, 224)):
-    """Pré-processamento completo da imagem"""
+# --- PRÉ-PROCESSAMENTO AVANÇADO ---
+def preprocessamento_avancado(image, target_size=(224, 224)):
+    """Pré-processamento com aumento de dados em tempo real"""
     img = image.convert("RGB").resize(target_size)
+    
+    # Conversão para array e normalização
     img_array = tf.keras.utils.img_to_array(img)
     img_array = tf.expand_dims(img_array, axis=0)
-    return img_array / 255.0  # Normalização
-
-# --- INTERFACE ---
-
-def mostrar_resultados(predictions, classes):
-    """Exibe os resultados formatados"""
-    st.subheader("🌱 Resultados da Identificação")
     
-    top_indices = np.argsort(predictions[0])[::-1][:3]  # Top 3 resultados
+    # Aplicar transformações de aumento de dados
+    datagen = tf.keras.preprocessing.image.ImageDataGenerator(
+        rotation_range=20,
+        width_shift_range=0.2,
+        height_shift_range=0.2,
+        shear_range=0.2,
+        zoom_range=0.2,
+        horizontal_flip=True,
+        fill_mode='nearest'
+    )
     
-    for i, idx in enumerate(top_indices):
-        confianca = float(predictions[0][idx])
-        label = classes[idx]
-        
-        # Barra de progresso colorida
-        if confianca > 0.7:
-            st.success(f"{i+1}º: {label} - {confianca:.1%}")
-        elif confianca > 0.3:
-            st.warning(f"{i+1}º: {label} - {confianca:.1%}")
-        else:
-            st.error(f"{i+1}º: {label} - {confianca:.1%}")
-        
-        st.progress(confianca)
+    return datagen.flow(img_array, batch_size=1).next() / 255.0
 
+# --- INTERFACE APRIMORADA ---
 def main():
     st.set_page_config(
-        page_title="Identificador de PANCs",
+        page_title="Identificador de PANCs - Versão Avançada",
         page_icon="🌿",
-        layout="centered"
+        layout="wide"
     )
     
-    st.title("🌿 Identificador de PANCs")
-    st.write("Envie uma imagem de planta para identificação")
+    st.title("🌿 Identificador Inteligente de PANCs")
     
-    uploaded_file = st.file_uploader(
-        "Selecione uma imagem...", 
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=False
-    )
+    col1, col2 = st.columns([1, 2])
     
-    if uploaded_file is not None:
-        try:
+    with col1:
+        st.subheader("Envio de Imagem")
+        uploaded_file = st.file_uploader(
+            "Selecione uma imagem de planta...",
+            type=["jpg", "jpeg", "png"],
+            accept_multiple_files=False
+        )
+        
+        if uploaded_file:
             image = Image.open(uploaded_file)
             st.image(image, caption="Imagem enviada", use_container_width=True)
             
             if st.button("🔍 Identificar Planta", type="primary"):
-                with st.spinner("Processando..."):
-                    model = carregar_modelo()
-                    classes = carregar_classes()
-                    input_data = preprocess_image(image)
-                    predictions = model.predict(input_data, verbose=0)
-                    mostrar_resultados(predictions, classes)
-                    
-        except Exception as e:
-            st.error(f"Erro: {str(e)}")
-            st.code(traceback.format_exc())
+                with st.spinner("Analisando com modelo avançado..."):
+                    try:
+                        model = carregar_modelo_otimizado()
+                        classes = carregar_classes()
+                        input_data = preprocessamento_avancado(image)
+                        predictions = model.predict(input_data, verbose=0)
+                        
+                        with col2:
+                            mostrar_resultados_detalhados(predictions, classes)
+                            
+                    except Exception as e:
+                        st.error(f"Erro durante análise: {str(e)}")
+    
+    with col2:
+        st.subheader("Detalhes Técnicos")
+        if st.checkbox("Mostrar informações do modelo"):
+            try:
+                model = carregar_modelo_otimizado()
+                st.text("Arquitetura do modelo:")
+                st.text(model.summary())
+                
+                # Mostrar exemplos de pré-processamento
+                if uploaded_file:
+                    st.subheader("Visualização do Pré-processamento")
+                    img_array = preprocessamento_avancado(Image.open(uploaded_file))
+                    st.image(img_array[0], caption="Imagem após pré-processamento", clamp=True)
+            except:
+                st.warning("Modelo ainda não carregado")
+
+def mostrar_resultados_detalhados(predictions, classes):
+    """Visualização avançada dos resultados"""
+    st.subheader("📊 Análise Detalhada")
+    
+    # Top 5 predições
+    top_k = 5
+    top_indices = np.argsort(predictions[0])[::-1][:top_k]
+    
+    # Gráfico de barras
+    chart_data = {
+        "Planta": [classes[i] for i in top_indices],
+        "Confiança": [float(predictions[0][i]) for i in top_indices]
+    }
+    
+    st.bar_chart(chart_data, x="Planta", y="Confiança", height=300)
+    
+    # Tabela detalhada
+    st.write("Detalhes das predições:")
+    for i, idx in enumerate(top_indices):
+        conf = float(predictions[0][idx])
+        st.progress(conf, text=f"{i+1}º: {classes[idx]} - {conf:.2%}")
 
 if __name__ == "__main__":
     main()
