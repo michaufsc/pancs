@@ -6,12 +6,13 @@ from PIL import Image
 from huggingface_hub import hf_hub_download
 
 # --- CONFIGURAÇÃO ---
-API_TOKEN = st.secrets.get("HF_TOKEN", "")
-API_URL = "https://api-inference.huggingface.co/models/michaufsc27/pancs_modelo"
+API_TOKEN = st.secrets.get("HF_TOKEN", "")  # Pegando token do secrets
 HEADERS = {"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {}
+
 REPO_ID = "michaufsc27/pancs_modelo"
-MODEL_FILENAME = "modelo_pancs.keras"  # Novo formato do modelo
-CLASSES_FILENAME = "labels.txt"        # Mesma lista de classes
+MODEL_FILENAME = "modelo_pancs.keras"
+CLASSES_FILENAME = "labels.txt"
+API_URL = f"https://api-inference.huggingface.co/models/{REPO_ID}"
 
 # --- FUNÇÕES ---
 @st.cache_resource(show_spinner="Carregando modelo...")
@@ -23,7 +24,8 @@ def carregar_modelo():
             cache_dir=".",
             token=API_TOKEN if API_TOKEN else None
         )
-        model = tf.keras.models.load_model(model_path)
+        model = tf.keras.models.load_model(model_path, compile=False)
+        model.compile()
         return model
     except Exception as e:
         st.error(f"Erro ao carregar modelo: {str(e)}")
@@ -38,7 +40,7 @@ def carregar_classes():
             cache_dir=".",
             token=API_TOKEN if API_TOKEN else None
         )
-        with open(classes_path, "r", encoding='utf-8') as f:
+        with open(classes_path, "r", encoding="utf-8") as f:
             return [linha.strip() for linha in f]
     except Exception as e:
         st.error(f"Erro ao carregar classes: {str(e)}")
@@ -46,8 +48,9 @@ def carregar_classes():
 
 def query_huggingface_api(image_bytes):
     if not API_TOKEN:
-        st.error("Token do Hugging Face não configurado")
+        st.error("Token do Hugging Face não configurado.")
         return None
+
     response = requests.post(API_URL, headers=HEADERS, data=image_bytes)
     if response.status_code == 200:
         return response.json()
@@ -64,39 +67,45 @@ def preprocess_image(image, target_size=(224, 224)):
 st.set_page_config(page_title="PancsID", layout="centered")
 st.title("🌿 PancsID - Identificador de Plantas PANC")
 
-# Carregar modelo e classes
 model = carregar_modelo()
 class_names = carregar_classes()
 
-# Escolha da entrada
+# Escolher entrada da imagem
 metodo = st.radio(
     "Escolha como enviar a imagem:",
     ["📁 Enviar do dispositivo", "📷 Tirar com a câmera"]
 )
 
-imagem_input = st.file_uploader("Envie uma imagem da planta", type=["jpg", "jpeg", "png"]) if metodo == "📁 Enviar do dispositivo" else st.camera_input("Tire uma foto da planta")
+imagem_input = None
+if metodo == "📁 Enviar do dispositivo":
+    imagem_input = st.file_uploader("Envie uma imagem da planta", type=["jpg", "jpeg", "png"])
+else:
+    imagem_input = st.camera_input("Tire uma foto da planta")
 
-# Processamento
+# Processar imagem
 if imagem_input is not None:
     try:
         image = Image.open(imagem_input).convert("RGB")
         st.image(image, caption="Imagem selecionada", use_column_width=True)
 
-        usar_api = API_TOKEN and st.checkbox("Usar API do Hugging Face (recomendado)", value=True)
+        usar_api = API_TOKEN and st.checkbox("Usar API do Hugging Face", value=True)
 
         if usar_api:
             with st.spinner("🔍 Analisando com API Hugging Face..."):
-                result = query_huggingface_api(imagem_input.getvalue())
+                image_bytes = imagem_input.getvalue()
+                result = query_huggingface_api(image_bytes)
+
                 if result and isinstance(result, list):
                     result_sorted = sorted(result, key=lambda x: x['score'], reverse=True)
-                    st.success(f"🌱 Previsão principal: **{result_sorted[0]['label']}**")
+                    st.success(f"🌱 Previsão: **{result_sorted[0]['label']}**")
                     st.write(f"Confiança: {result_sorted[0]['score'] * 100:.2f}%")
+
                     if len(result_sorted) > 1:
                         st.subheader("Outras possibilidades:")
                         for i, pred in enumerate(result_sorted[1:3], start=1):
                             st.write(f"{i}. {pred['label']} ({pred['score'] * 100:.2f}%)")
                 else:
-                    st.error("Resposta inesperada da API.")
+                    st.error("Erro na resposta da API.")
         else:
             with st.spinner("🔍 Analisando com modelo local..."):
                 img_array = preprocess_image(image)
@@ -104,8 +113,10 @@ if imagem_input is not None:
                 predicted_index = np.argmax(prediction)
                 predicted_label = class_names[predicted_index]
                 confidence = 100 * np.max(prediction)
+
                 st.success(f"🌱 Previsão: **{predicted_label}**")
                 st.write(f"Confiança: {confidence:.2f}%")
+
                 top_indices = np.argsort(prediction[0])[-3:][::-1]
                 st.subheader("Outras possibilidades:")
                 for i, idx in enumerate(top_indices[1:], start=1):
@@ -114,14 +125,14 @@ if imagem_input is not None:
     except Exception as e:
         st.error(f"Erro ao processar imagem: {str(e)}")
 
-# Ajuda lateral
+# --- Ajuda ---
 st.sidebar.markdown("""
 ### Como usar:
-1. Escolha como enviar a imagem (upload ou câmera)
-2. Aguarde a análise (pode demorar alguns segundos)
-3. Veja os resultados e possíveis alternativas
+1. Envie uma imagem ou tire uma foto da planta
+2. Aguarde o modelo classificar
+3. Veja o nome provável e outras opções
 
 ### Dicas:
-- Fotografe a planta com fundo limpo
-- Foque nas folhas e nas características distintivas
+- Use fundo neutro e iluminação boa
+- Foque nas folhas ou frutos
 """)
