@@ -15,23 +15,23 @@ CLASSES_FILENAME = "labels.txt"
 
 # --- FUNÇÕES PRINCIPAIS ---
 
-def criar_arquitetura_customizada(input_shape=(224, 224, 3), num_classes=213):
-    """Cria uma arquitetura CNN customizada compatível"""
-    inputs = tf.keras.Input(shape=input_shape, name='input_layer')
+def criar_arquitetura_padrao(num_classes):
+    """Cria uma arquitetura CNN genérica compatível"""
+    inputs = tf.keras.Input(shape=(224, 224, 3), name='input_layer')
     
-    # Bloco 1
-    x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
-    x = tf.keras.layers.MaxPooling2D((2, 2), padding='same')(x)
+    # Bloco convolucional 1
+    x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu')(inputs)
+    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
     
-    # Bloco 2
-    x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
-    x = tf.keras.layers.MaxPooling2D((2, 2), padding='same')(x)
+    # Bloco convolucional 2
+    x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu')(x)
+    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
     
-    # Bloco 3
-    x = tf.keras.layers.Conv2D(128, (3, 3), activation='relu', padding='same')(x)
-    x = tf.keras.layers.MaxPooling2D((2, 2), padding='same')(x)
+    # Bloco convolucional 3
+    x = tf.keras.layers.Conv2D(128, (3, 3), activation='relu')(x)
+    x = tf.keras.layers.MaxPooling2D((2, 2))(x)
     
-    # Camadas fully connected
+    # Camadas densas
     x = tf.keras.layers.Flatten()(x)
     x = tf.keras.layers.Dense(512, activation='relu')(x)
     outputs = tf.keras.layers.Dense(num_classes, activation='softmax')(x)
@@ -41,50 +41,64 @@ def criar_arquitetura_customizada(input_shape=(224, 224, 3), num_classes=213):
 @st.cache_resource(show_spinner="🔄 Carregando modelo...")
 def carregar_modelo():
     try:
-        model_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename=MODEL_FILENAME,
-            token=API_TOKEN if API_TOKEN else None
-        )
+        # Verifica se o modelo está localmente
+        model_path = "modelo_pancs.h5"
         
+        if not os.path.exists(model_path):
+            model_path = hf_hub_download(
+                repo_id=REPO_ID,
+                filename=MODEL_FILENAME,
+                token=API_TOKEN if API_TOKEN else None
+            )
+        
+        # Primeiro carrega as classes para determinar o número de saídas
         classes = carregar_classes()
         num_classes = len(classes)
         
         # Estratégia 1: Tentar carregar com safe_mode=False
         try:
-            model = tf.keras.models.load_model(model_path, compile=False, safe_mode=False)
-            model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-            st.success("Modelo carregado com sucesso (método direto)!")
+            model = tf.keras.models.load_model(
+                model_path,
+                compile=False,
+                safe_mode=False
+            )
+            model.compile(
+                optimizer='adam',
+                loss='categorical_crossentropy',
+                metrics=['accuracy']
+            )
+            st.success("Modelo carregado com sucesso!")
             return model
         except Exception as e:
             st.warning(f"Falha no carregamento direto: {str(e)}")
         
-        # Estratégia 2: Reconstruir arquitetura e carregar pesos
-        st.info("Tentando reconstruir arquitetura manualmente...")
-        new_model = criar_arquitetura_customizada(num_classes=num_classes)
+        # Estratégia 2: Carregar apenas os pesos em arquitetura nova
+        st.info("Criando nova arquitetura e carregando pesos...")
+        new_model = criar_arquitetura_padrao(num_classes)
         
-        # Verifica quais pesos podem ser carregados
-        with h5py.File(model_path, 'r') as f:
-            layer_names = [n.decode('utf8') for n in f.attrs['layer_names']]
-            st.write(f"Camadas disponíveis no arquivo: {layer_names}")
+        try:
+            # Tenta carregar os pesos diretamente
+            new_model.load_weights(model_path)
+            st.success("Pesos carregados com sucesso na nova arquitetura!")
+        except Exception as e:
+            st.warning(f"Não foi possível carregar todos os pesos: {str(e)}")
+            st.warning("O modelo será inicializado com pesos aleatórios")
         
-        # Carrega pesos compatíveis
-        load_status = new_model.load_weights(model_path, by_name=True)
-        
-        # Mostra status do carregamento
-        if load_status:
-            st.warning("Aviso: Algumas camadas não carregaram corretamente:")
-            for layer in new_model.layers:
-                if not layer.weights:
-                    st.write(f"- {layer.name}: Não carregado")
-                else:
-                    st.write(f"+ {layer.name}: Carregado")
-        
-        new_model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+        new_model.compile(
+            optimizer='adam',
+            loss='categorical_crossentropy',
+            metrics=['accuracy']
+        )
         return new_model
         
     except Exception as e:
         st.error(f"Erro crítico: {str(e)}")
+        st.error("""
+        Soluções sugeridas:
+        1. Verifique se o arquivo do modelo está intacto
+        2. Atualize o TensorFlow para a versão mais recente
+        3. Recrie o modelo usando Input(shape=...) em vez de batch_shape
+        """)
         raise RuntimeError(f"Falha ao carregar modelo: {e}")
 
 @st.cache_resource
@@ -100,67 +114,66 @@ def carregar_classes():
             if not classes:
                 raise ValueError("Arquivo de classes vazio")
             return classes
-    except:
-        st.warning("Usando classes fallback (213 classes)")
-        return [f"Classe {i}" for i in range(213)]
+    except Exception as e:
+        st.warning(f"Usando classes fallback. Erro: {str(e)}")
+        return [f"Classe {i}" for i in range(213)]  # Fallback baseado no erro anterior
 
 def preprocess_image(image, target_size=(224, 224)):
-    """Pré-processamento completo da imagem"""
-    img = image.convert("RGB").resize(target_size)
-    img_array = tf.keras.utils.img_to_array(img)
-    img_array = tf.expand_dims(img_array, axis=0)
-    return img_array / 255.0  # Normalização
+    """Pré-processamento robusto da imagem"""
+    try:
+        img = image.convert("RGB").resize(target_size)
+        img_array = tf.keras.utils.img_to_array(img)
+        img_array = tf.expand_dims(img_array, axis=0)
+        return img_array / 255.0  # Normalização
+    except Exception as e:
+        raise ValueError(f"Erro ao processar imagem: {str(e)}")
 
 def mostrar_resultados(predictions, classes):
-    """Exibe resultados formatados"""
-    st.subheader("📊 Resultados da Classificação")
+    """Exibe resultados de forma clara"""
+    st.subheader("🌱 Resultados da Identificação")
     
-    top_k = 5
-    top_indices = np.argsort(predictions[0])[::-1][:top_k]
+    # Ordena as predições
+    top_indices = np.argsort(predictions[0])[::-1][:5]  # Top 5
     
-    cols = st.columns(top_k)
     for i, idx in enumerate(top_indices):
-        with cols[i]:
-            conf = float(predictions[0][idx])
-            st.metric(
-                label=classes[idx],
-                value=f"{conf:.1%}",
-                help=f"Confiança: {conf:.2%}"
-            )
-            st.progress(conf)
+        confianca = float(predictions[0][idx])
+        label = classes[idx]
+        
+        # Cria colunas para organizar os resultados
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            st.metric(label=f"{i+1}º", value=f"{confianca:.1%}")
+        with col2:
+            st.progress(confianca)
+            st.caption(label)
 
-# --- INTERFACE ---
+# --- INTERFACE STREAMLIT ---
 def main():
     st.set_page_config(
         page_title="Identificador de PANCs",
         page_icon="🌿",
-        layout="wide"
+        layout="centered"
     )
     
-    st.title("🌿 Identificador de Plantas Alimentícias Não Convencionais")
+    st.title("🌿 Identificador de PANCs")
+    st.markdown("""
+    Identifique Plantas Alimentícias Não Convencionais através de imagens.
+    *Funciona melhor com fotos claras das folhas ou da planta inteira.*
+    """)
     
-    with st.expander("ℹ️ Como usar", expanded=True):
-        st.write("""
-        1. Faça upload de uma imagem de planta
-        2. Clique em 'Identificar'
-        3. Veja os resultados classificados por confiança
-        """)
+    uploaded_file = st.file_uploader(
+        "Selecione uma imagem da planta...",
+        type=["jpg", "jpeg", "png"],
+        accept_multiple_files=False
+    )
     
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        uploaded_file = st.file_uploader(
-            "Selecione uma imagem...",
-            type=["jpg", "jpeg", "png"],
-            accept_multiple_files=False
-        )
-        
-        if uploaded_file:
+    if uploaded_file is not None:
+        try:
             image = Image.open(uploaded_file)
-            st.image(image, use_container_width=True)
+            st.image(image, caption="Imagem enviada", use_container_width=True)
             
             if st.button("🔍 Identificar Planta", type="primary"):
-                with st.spinner("Processando..."):
+                with st.spinner("Analisando a planta..."):
                     try:
                         model = carregar_modelo()
                         classes = carregar_classes()
@@ -170,16 +183,9 @@ def main():
                     except Exception as e:
                         st.error(f"Erro durante a identificação: {str(e)}")
                         st.code(traceback.format_exc())
-
-    with col2:
-        st.subheader("📝 Informações Técnicas")
-        if st.checkbox("Mostrar detalhes do modelo"):
-            try:
-                model = carregar_modelo()
-                st.text("Arquitetura do modelo:")
-                st.text(model.summary())
-            except:
-                st.warning("Modelo ainda não carregado")
+                        
+        except Exception as e:
+            st.error(f"Erro ao processar a imagem: {str(e)}")
 
 if __name__ == "__main__":
     main()
