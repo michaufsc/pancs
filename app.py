@@ -7,48 +7,45 @@ import os
 import traceback
 
 # --- CONFIGURAÇÃO ---
-API_TOKEN = st.secrets.get("HF_TOKEN", "")  # Pegando token do secrets
-HEADERS = {"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {}
-
-REPO_ID = "michaufsc27/pancs_modelo"
-MODEL_FILENAME = "modelo_pancs.keras"
-CLASSES_FILENAME = "labels.txt"
+API_TOKEN = st.secrets.get("HF_TOKEN", "")  # Token do Hugging Face
+REPO_ID = "michaufsc27/pancs_modelo"  # Repositório do modelo
+CLASSES_FILENAME = "labels.txt"  # Arquivo com as classes
 
 # --- FUNÇÕES ---
 
 @st.cache_resource(show_spinner="🔄 Carregando modelo...")
 def carregar_modelo():
     try:
-        model_path = hf_hub_download(
-            repo_id=REPO_ID,
-            filename=MODEL_FILENAME,
-            cache_dir=".",
-            token=API_TOKEN if API_TOKEN else None
+        # Verifica se temos um modelo local
+        model_path = "modelo_pancs.h5"
+        
+        # Se não existir local, baixa do Hugging Face Hub
+        if not os.path.exists(model_path):
+            model_path = hf_hub_download(
+                repo_id=REPO_ID,
+                filename="modelo_pancs.h5",
+                token=API_TOKEN if API_TOKEN else None
+            )
+        
+        # Carrega o modelo H5
+        model = tf.keras.models.load_model(
+            model_path,
+            compile=False
         )
         
-        if not os.path.exists(model_path) or os.path.getsize(model_path) < 1024:
-            raise ValueError("Arquivo do modelo inválido ou corrompido")
-            
-        # Tentativa de carregamento com tratamento para a InputLayer
-        try:
-            model = tf.keras.models.load_model(
-                model_path, 
-                compile=False,
-                custom_objects={'InputLayer': tf.keras.layers.InputLayer}
-            )
-        except Exception as e:
-            st.warning("Primeira tentativa de carregamento falhou, tentando alternativa...")
-            model = tf.keras.models.load_model(
-                model_path,
-                compile=False,
-                safe_mode=False
-            )
-            
-        model.compile()
+        # Compila o modelo (ajuste conforme sua configuração original)
+        model.compile(
+            optimizer='adam',
+            loss='categorical_crossentropy',
+            metrics=['accuracy']
+        )
+        
         return model
+        
     except Exception as e:
-        st.error(f"Erro detalhado ao carregar modelo: {str(e)}")
-        raise RuntimeError(f"Erro ao carregar modelo: {e}")
+        st.error(f"Erro ao carregar modelo: {str(e)}")
+        st.error("Verifique se o arquivo model.h5 está correto")
+        raise RuntimeError(f"Falha ao carregar modelo: {e}")
 
 @st.cache_resource
 def carregar_classes():
@@ -56,96 +53,95 @@ def carregar_classes():
         classes_path = hf_hub_download(
             repo_id=REPO_ID,
             filename=CLASSES_FILENAME,
-            cache_dir=".",
             token=API_TOKEN if API_TOKEN else None
         )
         with open(classes_path, "r", encoding="utf-8") as f:
-            classes = [linha.strip() for linha in f]
-            if not classes:
-                raise ValueError("Arquivo de classes está vazio.")
-            return classes
+            return [linha.strip() for linha in f if linha.strip()]
     except Exception as e:
-        raise RuntimeError(f"Erro ao carregar classes: {e}")
+        st.error(f"Erro ao carregar classes: {str(e)}")
+        return ["Classe 1", "Classe 2"]  # Fallback básico
 
 def preprocess_image(image, target_size=(224, 224)):
-    try:
-        img = image.convert("RGB").resize(target_size)
-        img_array = tf.keras.utils.img_to_array(img)
-        img_array = tf.keras.applications.mobilenet_v2.preprocess_input(img_array)
-        return np.expand_dims(img_array, axis=0)
-    except Exception as e:
-        raise RuntimeError(f"Erro ao processar a imagem: {e}")
+    """Pré-processamento padrão para modelos CNN"""
+    img = image.convert("RGB").resize(target_size)
+    img_array = tf.keras.utils.img_to_array(img)
+    img_array = tf.expand_dims(img_array, 0)  # Adiciona dimensão do batch
+    return tf.keras.applications.mobilenet_v2.preprocess_input(img_array)
 
 def mostrar_resultados(predictions, classes):
-    top_indices = np.argsort(predictions[0])[::-1][:3]  # Top 3 previsões
-    st.subheader("Resultados:")
+    """Exibe os resultados de forma organizada"""
+    st.subheader("🔍 Resultados da Identificação")
+    
+    # Ordena as predições
+    top_indices = np.argsort(predictions[0])[::-1][:3]  # Top 3
     
     for i, idx in enumerate(top_indices):
-        confidence = float(predictions[0][idx])
-        predicted_label = classes[idx]
+        confianca = float(predictions[0][idx])
+        label = classes[idx]
         
-        # Barra de progresso para visualização da confiança
-        st.progress(confidence)
-        st.write(f"{i+1}º: **{predicted_label}** - {confidence:.2%}")
+        # Barra de progresso colorida
+        if confianca > 0.7:
+            st.success(f"{i+1}º: {label} - {confianca:.2%}")
+        elif confianca > 0.3:
+            st.warning(f"{i+1}º: {label} - {confianca:.2%}")
+        else:
+            st.error(f"{i+1}º: {label} - {confianca:.2%}")
+        
+        st.progress(confianca)
 
-# --- INTERFACE PRINCIPAL ---
+# --- INTERFACE ---
 def main():
     st.set_page_config(
-        page_title="Identificador de PANCs", 
-        layout="centered",
-        page_icon="🌿"
+        page_title="Identificador de PANCs",
+        page_icon="🌿",
+        layout="centered"
     )
     
-    st.title("🌿 Identificador de Plantas Alimentícias Não Convencionais (PANCs)")
+    st.title("🌿 Identificador de PANCs")
     st.markdown("""
-    Envie uma imagem de uma planta para identificar a espécie.
-    *Plantas Alimentícias Não Convencionais (PANCs)* são espécies vegetais com potencial alimentício,
-    mas que não são amplamente consumidas ou conhecidas.
+    Identifique Plantas Alimentícias Não Convencionais (PANCs) através de imagens.
+    Envie uma foto da planta para análise.
     """)
-
-    with st.expander("ℹ️ Como usar"):
+    
+    with st.expander("ℹ️ Instruções"):
         st.write("""
-        1. Clique em "Escolha uma imagem" ou arraste uma foto
-        2. Selecione uma imagem clara da planta
-        3. Clique no botão "Identificar"
-        4. Veja os resultados da classificação
+        1. Clique em "Escolher arquivo" para enviar uma imagem
+        2. Aguarde o processamento (pode demorar alguns segundos)
+        3. Veja os resultados da identificação
         """)
-
+    
     uploaded_file = st.file_uploader(
-        "📷 Escolha uma imagem...", 
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=False
+        "Selecione uma imagem da planta...",
+        type=["jpg", "jpeg", "png"]
     )
-
+    
     if uploaded_file is not None:
         try:
+            # Carrega e exibe a imagem
             image = Image.open(uploaded_file)
-            st.image(image, caption="Imagem enviada", use_container_width=True)  # Atualizado aqui
-
-            if st.button("🔍 Identificar", type="primary"):
-                with st.spinner("Processando imagem..."):
+            st.image(image, caption="Imagem enviada", use_container_width=True)
+            
+            if st.button("Identificar Planta", type="primary"):
+                with st.spinner("Analisando a planta..."):
                     try:
+                        # Carrega modelo e classes
                         model = carregar_modelo()
                         classes = carregar_classes()
+                        
+                        # Pré-processa e faz a predição
                         input_data = preprocess_image(image)
+                        predictions = model.predict(input_data, verbose=0)
                         
-                        with st.spinner("Classificando..."):
-                            predictions = model.predict(input_data, verbose=0)
-                        
+                        # Mostra resultados
                         mostrar_resultados(predictions, classes)
                         
                     except Exception as e:
-                        st.error("⚠️ Erro durante a classificação:")
+                        st.error("Erro durante a identificação")
                         st.code(traceback.format_exc())
-
+        
         except Exception as e:
-            st.error("⚠️ Erro ao processar a imagem:")
+            st.error("Erro ao processar a imagem")
             st.code(traceback.format_exc())
 
-# --- EXECUÇÃO ---
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        st.error("⚠️ Erro inesperado no aplicativo:")
-        st.code(traceback.format_exc())
+    main()
