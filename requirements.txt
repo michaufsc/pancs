@@ -1,5 +1,5 @@
 streamlit==1.32.0
-tensorflow==2.15.0  # ou tensorflow-cpu se não tiver GPU
+tensorflow==2.15.0
 pillow==10.1.0
 requests==2.31.0
 numpy==1.26.0
