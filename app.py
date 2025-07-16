@@ -102,9 +102,9 @@ if imagem_input is not None:
         image = Image.open(imagem_input).convert("RGB")
         st.image(image, caption="Imagem selecionada", use_column_width=True)
         
-        usar_api = st.checkbox(
-            "Usar API do Hugging Face (recomendado)",
-            value=bool(API_TOKEN)  # Só mostra se tiver token
+            usar_api = st.checkbox(
+    "Usar API do Hugging Face (recomendado)",
+    value=bool(API_TOKEN  # Só mostra se tiver token
         
         if usar_api and API_TOKEN:
             with st.spinner("🔍 Analisando com API Hugging Face..."):
