@@ -6,12 +6,12 @@ from PIL import Image
 from huggingface_hub import hf_hub_download
 
 # --- CONFIGURAÇÃO ---
-API_TOKEN = st.secrets["HF_TOKEN"]  # Armazenado com segurança em Streamlit Secrets
+API_TOKEN = st.secrets["HF_TOKEN"]
 API_URL = "https://api-inference.huggingface.co/models/michaufsc27/pancs_modelo"
 HEADERS = {"Authorization": f"Bearer {API_TOKEN}"}
 REPO_ID = "michaufsc27/pancs_modelo"
-MODEL_FILENAME = "modelo_pancs.h5"
-CLASSES_FILENAME = "classes.txt"
+MODEL_FILENAME = "modelo_pancs (2).h5"  # Nome corrigido
+CLASSES_FILENAME = "classes (2).txt"    # Nome corrigido"
 
 # --- FUNÇÕES ---
 @st.cache_resource(show_spinner="Carregando modelo...")
