@@ -120,7 +120,7 @@ def main():
     if uploaded_file is not None:
         try:
             image = Image.open(uploaded_file)
-            st.image(image, caption="Imagem enviada", use_column_width=True)
+            st.image(image, caption="Imagem enviada", use_container_width=True)  # Atualizado aqui
 
             if st.button("🔍 Identificar", type="primary"):
                 with st.spinner("Processando imagem..."):
