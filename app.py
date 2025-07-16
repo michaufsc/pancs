@@ -2,29 +2,43 @@ import streamlit as st
 import requests
 import tensorflow as tf
 import numpy as np
+import pandas as pd
 from PIL import Image
 from huggingface_hub import hf_hub_download
+import tempfile
+import os
 
 # --- CONFIGURAÇÃO ---
-API_TOKEN = st.secrets.get("HF_TOKEN", "")  # Usando get para evitar erros se não existir
+st.set_page_config(
+    page_title="PancsID", 
+    page_icon="🌿", 
+    layout="centered",
+    initial_sidebar_state="expanded"
+)
+
+# Carregar token de forma segura
+API_TOKEN = st.secrets.get("HF_TOKEN", "")
 API_URL = "https://api-inference.huggingface.co/models/michaufsc27/pancs_modelo"
 HEADERS = {"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {}
 REPO_ID = "michaufsc27/pancs_modelo"
-MODEL_FILENAME = "modelo_pancs (2).h5"  # Nome exato do arquivo
-CLASSES_FILENAME = "classes (2).txt"    # Nome exato do arquivo
+MODEL_FILENAME = "modelo_pancs (2).h5"
+CLASSES_FILENAME = "classes (2).txt"
 
 # --- FUNÇÕES ---
-@st.cache_resource(show_spinner="Carregando modelo...")
+@st.cache_resource(show_spinner="🔄 Carregando modelo local...")
 def carregar_modelo():
+    """Carrega o modelo TensorFlow com tratamento robusto de erros"""
     try:
+        # Criar diretório temporário para evitar conflitos
+        cache_dir = tempfile.mkdtemp()
         model_path = hf_hub_download(
             repo_id=REPO_ID,
             filename=MODEL_FILENAME,
-            cache_dir=".",
+            cache_dir=cache_dir,
             token=API_TOKEN if API_TOKEN else None
         )
         
-        # Configuração robusta para compatibilidade
+        # Configuração de compatibilidade
         custom_objects = {
             'InputLayer': tf.keras.layers.InputLayer,
             'KerasLayer': tf.keras.layers.Layer
@@ -35,127 +49,188 @@ def carregar_modelo():
             custom_objects=custom_objects,
             compile=False
         )
-        model.compile()  # Recompila se necessário
+        
+        # Verificação de integridade do modelo
+        if not hasattr(model, "predict"):
+            raise ValueError("Modelo carregado não possui método predict")
+            
+        model.compile()
         return model
     except Exception as e:
-        st.error(f"Erro ao carregar modelo: {str(e)}")
+        st.error(f"⛔ Falha ao carregar modelo: {str(e)}")
+        st.error("Por favor, verifique os arquivos do modelo ou tente mais tarde.")
         st.stop()
 
-@st.cache_resource
+@st.cache_resource(show_spinner="📚 Carregando categorias...")
 def carregar_classes():
+    """Carrega as classes de plantas com tratamento de encoding"""
     try:
+        cache_dir = tempfile.mkdtemp()
         classes_path = hf_hub_download(
             repo_id=REPO_ID,
             filename=CLASSES_FILENAME,
-            cache_dir=".",
+            cache_dir=cache_dir,
             token=API_TOKEN if API_TOKEN else None
         )
+        
         with open(classes_path, "r", encoding='utf-8') as f:
-            return [linha.strip() for linha in f]
+            classes = [linha.strip() for linha in f if linha.strip()]
+            
+        if not classes:
+            raise ValueError("Arquivo de classes vazio")
+            
+        return classes
     except Exception as e:
-        st.error(f"Erro ao carregar classes: {str(e)}")
+        st.error(f"⛔ Erro ao carregar categorias: {str(e)}")
         st.stop()
 
+@st.cache_data
+def preprocess_image(_image, target_size=(224, 224)):
+    """Pré-processa a imagem para o formato esperado pelo modelo"""
+    try:
+        img = _image.resize(target_size)
+        img_array = tf.keras.utils.img_to_array(img)
+        img_array = img_array / 127.5 - 1.0  # Normalização para [-1, 1]
+        return np.expand_dims(img_array, axis=0)
+    except Exception as e:
+        st.error(f"⛔ Erro no pré-processamento da imagem: {str(e)}")
+        return None
+
 def query_huggingface_api(image_bytes):
+    """Consulta a API do Hugging Face com tratamento de erros"""
     if not API_TOKEN:
-        st.error("Token do Hugging Face não configurado")
+        st.warning("🔒 API desativada (token não configurado)")
         return None
         
-    response = requests.post(API_URL, headers=HEADERS, data=image_bytes)
-    if response.status_code == 200:
-        return response.json()
-    else:
-        st.error(f"Erro na API: {response.status_code} - {response.text}")
+    try:
+        response = requests.post(API_URL, headers=HEADERS, data=image_bytes, timeout=10)
+        response.raise_for_status()
+        
+        result = response.json()
+        if not isinstance(result, list):
+            raise ValueError("Resposta da API em formato inesperado")
+            
+        return result
+    except requests.exceptions.RequestException as e:
+        st.error(f"⛔ Erro na conexão com a API: {str(e)}")
+        return None
+    except Exception as e:
+        st.error(f"⛔ Erro ao processar resposta da API: {str(e)}")
         return None
 
-def preprocess_image(image, target_size=(224, 224)):
-    img = image.resize(target_size)
-    img_array = tf.keras.utils.img_to_array(img) / 255.0
-    return np.expand_dims(img_array, axis=0)
+def display_results(predictions, source="API"):
+    """Exibe os resultados de forma padronizada"""
+    if not predictions:
+        return
+        
+    # Cria DataFrame com resultados
+    if source == "API":
+        df = pd.DataFrame(predictions)
+        df = df.sort_values("score", ascending=False)
+        df["score"] = df["score"].apply(lambda x: f"{x*100:.2f}%")
+        df.columns = ["Planta", "Confiança"]
+    else:
+        top_indices = np.argsort(predictions[0])[-5:][::-1]
+        df = pd.DataFrame({
+            "Planta": [class_names[i] for i in top_indices],
+            "Confiança": [f"{predictions[0][i]*100:.2f}%" for i in top_indices]
+        })
+    
+    # Exibe resultados
+    st.success(f"🌱 **Identificação principal**: {df.iloc[0]['Planta']} (Confiança: {df.iloc[0]['Confiança']})")
+    
+    with st.expander("🔍 Ver todas as possibilidades"):
+        st.dataframe(df, hide_index=True, use_container_width=True)
+        
+    # Sugestão visual
+    if df.iloc[0]['Confiança'] < "70.00%":
+        st.warning("⚠️ Confiança moderada - verifique com outras fontes")
 
 # --- INTERFACE ---
-st.set_page_config(page_title="PancsID", layout="centered")
 st.title("🌿 PancsID - Identificador de Plantas PANC")
+st.markdown("""
+Identifique plantas alimentícias não convencionais (PANC) através de imagens.
+""")
+
+# Barra lateral informativa
+with st.sidebar:
+    st.header("ℹ️ Como usar")
+    st.markdown("""
+    1. Escolha o método de entrada
+    2. Envie/tire uma foto da planta
+    3. Aguarde a análise (10-30 segundos)
+    4. Verifique os resultados
+    
+    **Dicas para melhor precisão:**
+    - Fotograve com boa iluminação
+    - Foque nas folhas e características únicas
+    - Evite fundos poluídos
+    """)
+    
+    if not API_TOKEN:
+        st.warning("🔒 Modo local (sem API Hugging Face)")
 
 # Carregar recursos
-model = carregar_modelo()
+model = carregar_modelo() if not API_TOKEN else None
 class_names = carregar_classes()
 
 # Seleção do método de entrada
 metodo = st.radio(
-    "Escolha como enviar a imagem:",
-    ["📁 Enviar do dispositivo", "📷 Tirar com a câmera"]
+    "📷 Método de captura:",
+    ["Upload de imagem", "Tirar foto"],
+    horizontal=True,
+    index=0
 )
 
 imagem_input = None
-if metodo == "📁 Enviar do dispositivo":
+if metodo == "Upload de imagem":
     imagem_input = st.file_uploader(
-        "Envie uma imagem da planta",
-        type=["jpg", "jpeg", "png"]
+        "Selecione uma imagem da planta",
+        type=["jpg", "jpeg", "png"],
+        label_visibility="collapsed"
     )
 else:
-    imagem_input = st.camera_input("Tire uma foto da planta")
+    imagem_input = st.camera_input(
+        "Tire uma foto da planta",
+        label_visibility="collapsed"
+    )
 
 # Processamento da imagem
 if imagem_input is not None:
     try:
         image = Image.open(imagem_input).convert("RGB")
-        st.image(image, caption="Imagem selecionada", use_column_width=True)
         
-        # Verifica se há token disponível para usar a API
-        if API_TOKEN:
-            usar_api = st.checkbox(
-                "Usar API do Hugging Face (recomendado)",
-                value=True
-            )
-        else:
+        col1, col2 = st.columns(2)
+        with col1:
+            st.image(image, caption="Imagem processada", use_column_width=True)
+        
+        with col2:
+            st.subheader("🔎 Análise")
+            
+            # Opção de usar API se disponível
             usar_api = False
-            st.warning("API não disponível - usando modelo local")
-
-        if usar_api:
-            with st.spinner("🔍 Analisando com API Hugging Face..."):
-                image_bytes = imagem_input.getvalue()
-                result = query_huggingface_api(image_bytes)
-                
-                if result:
-                    if isinstance(result, list):
-                        result_sorted = sorted(result, key=lambda x: x['score'], reverse=True)
-                        st.success(f"🌱 Previsão principal: **{result_sorted[0]['label']}**")
-                        st.write(f"Confiança: {result_sorted[0]['score'] * 100:.2f}%")
-                        
-                        if len(result_sorted) > 1:
-                            st.subheader("Outras possibilidades:")
-                            for i, pred in enumerate(result_sorted[1:3], start=1):
-                                st.write(f"{i}. {pred['label']} ({pred['score'] * 100:.2f}%)")
-                    else:
-                        st.error("Formato de resposta inesperado da API")
-        else:
-            with st.spinner("🔍 Analisando com modelo local..."):
-                img_array = preprocess_image(image)
-                prediction = model.predict(img_array)
-                predicted_index = np.argmax(prediction)
-                predicted_label = class_names[predicted_index]
-                confidence = 100 * np.max(prediction)
-                
-                st.success(f"🌱 Previsão: **{predicted_label}**")
-                st.write(f"Confiança: {confidence:.2f}%")
-                
-                top_indices = np.argsort(prediction[0])[-3:][::-1]
-                st.subheader("Outras possibilidades:")
-                for i, idx in enumerate(top_indices[1:], start=1):
-                    st.write(f"{i}. {class_names[idx]} ({prediction[0][idx] * 100:.2f}%)")
+            if API_TOKEN:
+                usar_api = st.toggle("Usar API Hugging Face (recomendado)", value=True)
+            
+            if usar_api:
+                with st.spinner("🔍 Consultando API Hugging Face..."):
+                    image_bytes = imagem_input.getvalue()
+                    result = query_huggingface_api(image_bytes)
+                    if result:
+                        display_results(result, source="API")
+            else:
+                with st.spinner("🔍 Processando com modelo local..."):
+                    img_array = preprocess_image(image)
+                    if img_array is not None:
+                        prediction = model.predict(img_array)
+                        display_results(prediction, source="local")
 
     except Exception as e:
-        st.error(f"Erro ao processar imagem: {str(e)}")
+        st.error(f"⛔ Erro inesperado: {str(e)}")
+        st.error("Por favor, tente com outra imagem.")
 
-# Informações de ajuda
-st.sidebar.markdown("""
-### Como usar:
-1. Escolha como enviar a imagem (upload ou câmera)
-2. Aguarde a análise (pode demorar alguns segundos)
-3. Veja os resultados e possíveis alternativas
-
-### Dicas:
-- Fotograve a planta com fundo limpo
-- Foque nas folhas e características distintivas
+# Rodapé
+st.markdown("---")
+st.caption("""
+ℹ️ PancsID v1.0 | Modelo desenvolvido por michaufsc27 | Aplicação por [seu nome]
 """)
