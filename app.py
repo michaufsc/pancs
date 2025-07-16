@@ -1,46 +1,44 @@
 import streamlit as st
+import tensorflow as tf
 import numpy as np
 from PIL import Image
-from huggingface_hub import hf_hub_download
+import os
+from huggingface_hub import hf_hub_download, HfFolder
 
-# Hugging Face repo e modelo
+# Obtem o token com segurança
+HF_TOKEN = st.secrets["HF_TOKEN"]
+
+# Define o repo/modelo
 REPO_ID = "michaufsc27/pancs_modelo"
 MODEL_FILENAME = "modelo_pancs.h5"
 CLASSES_FILENAME = "classes.txt"
 
+# Autentica o huggingface_hub com o token
+HfFolder.save_token(HF_TOKEN)
+
 @st.cache_resource(show_spinner=False)
 def carregar_modelo():
-    hf_hub_download(repo_id=REPO_ID, filename=MODEL_FILENAME, cache_dir=".")
-    model = tf.keras.models.load_model(MODEL_FILENAME)
+    model_path = hf_hub_download(repo_id=REPO_ID, filename=MODEL_FILENAME, token=HF_TOKEN)
+    model = tf.keras.models.load_model(model_path)
     return model
 
 @st.cache_resource
 def carregar_classes():
-    hf_hub_download(repo_id=REPO_ID, filename=CLASSES_FILENAME, cache_dir=".")
-    with open(CLASSES_FILENAME, "r") as f:
+    classes_path = hf_hub_download(repo_id=REPO_ID, filename=CLASSES_FILENAME, token=HF_TOKEN)
+    with open(classes_path, "r") as f:
         classes = [linha.strip() for linha in f]
     return classes
 
-# Carregar modelo e classes
+# Interface
+st.title("🌿 PancsID - Identificador de Plantas PANC")
+uploaded_file = st.file_uploader("Envie uma imagem da planta", type=["jpg", "jpeg", "png"])
+
 model = carregar_modelo()
 class_names = carregar_classes()
 
-# Título do app
-st.title("🌿 PancsID - Identificador de Plantas PANC")
-
-# Escolha do método de envio
-metodo = st.radio("Escolha como enviar a imagem:", ["📁 Enviar do dispositivo", "📷 Tirar com a câmera"])
-
-# Upload ou câmera
-if metodo == "📁 Enviar do dispositivo":
-    imagem_input = st.file_uploader("Envie uma imagem da planta", type=["jpg", "jpeg", "png"])
-else:
-    imagem_input = st.camera_input("Tire uma foto da planta")
-
-# Processamento e previsão
-if imagem_input and model:
-    image = Image.open(imagem_input).convert("RGB")
-    st.image(image, caption="Imagem selecionada", use_column_width=True)
+if uploaded_file and model:
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="Imagem enviada", use_column_width=True)
 
     img = image.resize((224, 224))
     img_array = tf.keras.utils.img_to_array(img) / 255.0
