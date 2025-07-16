@@ -11,7 +11,7 @@ API_TOKEN = st.secrets.get("HF_TOKEN", "")  # Pegando token do secrets
 HEADERS = {"Authorization": f"Bearer {API_TOKEN}"} if API_TOKEN else {}
 
 REPO_ID = "michaufsc27/pancs_modelo"
-MODEL_FILENAME = "modelo_pancs.keras"
+MODEL_FILENAME = "modelo_pancs.h5"
 CLASSES_FILENAME = "labels.txt"
 API_URL = f"https://api-inference.huggingface.co/models/{REPO_ID}"
 
