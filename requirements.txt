@@ -1,8 +1,6 @@
 streamlit==1.32.2
-tensorflow==2.15.0
+tensorflow-cpu==2.15.0  # Versão mais leve e compatível
 pillow==10.2.0
-numpy==1.26.4
-pandas==2.2.1
-requests==2.31.0
 huggingface-hub==0.22.2
 protobuf==3.20.3
+numpy==1.26.4  # Versão compatível com TF 2.15
