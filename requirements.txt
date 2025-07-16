@@ -1,6 +1,6 @@
-streamlit==1.31.1
-tensorflow==2.13.0
-numpy
-Pillow
-requests
-huggingface_hub
+streamlit==1.29.0
+tensorflow==2.12.0  # ou tensorflow-cpu se não tiver GPU
+numpy==1.23.5
+pillow==10.0.0
+huggingface-hub==0.16.4
+requests==2.31.0
