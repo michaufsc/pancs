@@ -99,7 +99,7 @@ else:
 # Processamento da imagem
 if imagem_input is not None:
     try:
-               image = Image.open(imagem_input).convert("RGB")
+        image = Image.open(imagem_input).convert("RGB")
         st.image(image, caption="Imagem selecionada", use_column_width=True)
         
         usar_api = st.checkbox(
