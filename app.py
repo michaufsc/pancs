@@ -2,18 +2,17 @@ import streamlit as st
 import tensorflow as tf
 import numpy as np
 from PIL import Image
-import os
 from huggingface_hub import hf_hub_download, HfFolder
 
-# Obtem o token com segurança
+# Token seguro via secrets
 HF_TOKEN = st.secrets["HF_TOKEN"]
 
-# Define o repo/modelo
+# Hugging Face repo e arquivos
 REPO_ID = "michaufsc27/pancs_modelo"
 MODEL_FILENAME = "modelo_pancs.h5"
 CLASSES_FILENAME = "classes.txt"
 
-# Autentica o huggingface_hub com o token
+# Autentica o huggingface_hub
 HfFolder.save_token(HF_TOKEN)
 
 @st.cache_resource(show_spinner=False)
@@ -29,10 +28,15 @@ def carregar_classes():
         classes = [linha.strip() for linha in f]
     return classes
 
-# Interface
+# Interface do app
 st.title("🌿 PancsID - Identificador de Plantas PANC")
-uploaded_file = st.file_uploader("Envie uma imagem da planta", type=["jpg", "jpeg", "png"])
 
+# Upload ou câmera
+uploaded_file = st.file_uploader("Envie uma imagem da planta", type=["jpg", "jpeg", "png"])
+if not uploaded_file:
+    uploaded_file = st.camera_input("📸 Ou tire uma foto da planta agora")
+
+# Carrega modelo e classes
 model = carregar_modelo()
 class_names = carregar_classes()
 
@@ -45,7 +49,7 @@ if uploaded_file and model:
     img_array = np.expand_dims(img_array, axis=0)
 
     prediction = model.predict(img_array)
-    predicted_index = np.argmax(prediction)
+    predicted_index = int(np.argmax(prediction))
     predicted_label = class_names[predicted_index]
     confidence = 100 * np.max(prediction)
 
