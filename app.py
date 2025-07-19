@@ -4,24 +4,33 @@ import requests
 from io import BytesIO
 from PIL import Image
 
-# ====== CONFIGURAÇÃO ======
-API_KEY = "2b10StWKYdMZlXgbScMsBcRO"  # Sua chave API do PlantNet
+# Configuração
+API_KEY = "2b10StWKYdMZlXgbScMsBcRO"
 API_URL = "https://my-api.plantnet.org/v2/identify/all"
 
-# ====== CARREGAR DATASET LOCAL DE PLANTAS COMESTÍVEIS ======
 @st.cache_data
 def carregar_dados():
     try:
-        df = pd.read_csv("panc_corrigido.csv")
-        # Garantir que as URLs das imagens estejam completas (se necessário)
-        if 'imagem' in df.columns:
-            df['imagem'] = df['imagem'].apply(lambda x: f"https://hortodidatico.ufsc.br/{x}" if pd.notna(x) and not x.startswith('http') else x)
+        # Carrega o arquivo corrigido
+        df = pd.read_csv('panc_formatado.csv')
+        
+        # Corrige URLs que estão incompletas
+        df['url'] = df['url'].apply(lambda x: f"https:{x}" if x and not x.startswith('http') else x)
+        df['imagem'] = df['imagem'].apply(lambda x: f"https:{x}" if x and not x.startswith('http') else x)
+        
         return df
     except Exception as e:
-        st.error(f"Erro ao carregar o arquivo: {e}")
+        st.error(f"Erro ao carregar dados: {str(e)}")
         return pd.DataFrame()
 
+# Interface do app
+st.set_page_config(page_title="Identificador de PANCs", layout="centered", page_icon="🌿")
+
 df = carregar_dados()
+if df.empty:
+    st.error("Não foi possível carregar os dados das PANCs.")
+    st.stop()
+
 
 # ====== INTERFACE DO APP ======
 st.set_page_config(page_title="Identificador de PANCs", layout="centered", page_icon="🌿")
@@ -37,16 +46,6 @@ modo = st.radio("Modo de uso", ["📷 Identificar por imagem", "🔎 Buscar por 
 def mostrar_info_planta(linha):
     st.subheader(f"🌱 {linha['nome_cientifico']}")
     
-    # Exibir imagem se disponível
-    if 'imagem' in linha and pd.notna(linha["imagem"]):
-        try:
-            response = requests.get(linha["imagem"])
-            img = Image.open(BytesIO(response.content))
-            st.image(img, caption="Imagem da planta", use_column_width=True)
-        except:
-            st.warning("Não foi possível carregar a imagem")
-    
-    # Criar colunas para melhor organização
     col1, col2 = st.columns(2)
     
     with col1:
@@ -58,13 +57,22 @@ def mostrar_info_planta(linha):
     with col2:
         st.markdown("**🍽️ Uso culinário**")
         st.write(f"**Parte comestível:** {linha.get('parte_comestivel', 'Não disponível')}")
-        if 'uso_culinario' in linha and pd.notna(linha['uso_culinario']):
+        if pd.notna(linha.get('uso_culinario')):
             st.markdown("**Receitas:**")
             st.write(linha['uso_culinario'])
     
+    # Mostrar imagem se disponível
+    if pd.notna(linha.get('imagem')):
+        try:
+            response = requests.get(linha['imagem'])
+            img = Image.open(BytesIO(response.content))
+            st.image(img, caption="Imagem da planta", use_column_width=True)
+        except:
+            st.warning("Não foi possível carregar a imagem")
+    
     # Link para mais informações
-    if 'url' in linha and pd.notna(linha['url']):
-        st.markdown(f"🔗 [Mais informações no Horto Didático UFSC]({linha['url']})")
+    if pd.notna(linha.get('url')):
+        st.markdown(f"🔗 [Mais informações]({linha['url']})")
 
 # ====== IDENTIFICAÇÃO POR IMAGEM ======
 if modo == "📷 Identificar por imagem":
