@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 
 # ====== CONFIGURAÇÃO ======
-API_KEY = "SUA_API_KEY_PLANTNET_AQUI"
+API_KEY = "2b10StWKYdMZlXgbScMsBcRO"
 API_URL = "https://my-api.plantnet.org/v2/identify/all"
 
 # ====== CARREGAR DATASET LOCAL DE PLANTAS COMESTÍVEIS ======
