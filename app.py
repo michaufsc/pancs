@@ -24,7 +24,7 @@ st.set_page_config(
 # CONSTANTES
 # ======================
 DATA_DIR = Path(__file__).parent / "data"
-CSV_PATH = DATA_DIR / "panc_formatado_limpo.csv"
+CSV_PATH = DATA_DIR / "plantas_panc.csv"
 API_URL = "https://my-api.plantnet.org/v2/identify/all"
 
 # ======================
