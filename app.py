@@ -12,7 +12,7 @@ API_URL = "https://my-api.plantnet.org/v2/identify/all"
 def carregar_dados():
     try:
         # Carrega o arquivo corrigido
-        df = pd.read_csv('panc_formatado.csv')
+       df = pd.read_csv("panc_formatado_limpo.csv")
         
         # Corrige URLs que estão incompletas
         df['url'] = df['url'].apply(lambda x: f"https:{x}" if x and not x.startswith('http') else x)
