@@ -1,0 +1,29 @@
+# .gitignore padrão para projetos Python/Streamlit
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Ambiente virtual
+venv/
+.env/
+.venv/
+
+# Arquivos do Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Configurações de IDE
+.idea/
+.vscode/
+
+# Arquivos de cache
+*.cache
+
+# Arquivos de configuração sensíveis
+secrets.toml
+*.env
+
+# Exceção importante (PERMITE seu arquivo CSV)
+!data/panc_formatado_limpo.csv
