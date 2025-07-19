@@ -24,7 +24,7 @@ st.set_page_config(
 # CONSTANTES
 # ======================
 DATA_DIR = Path(__file__).parent / "data"
-CSV_PATH = DATA_DIR / "plantas_panc.csv"  # Nome atualizado para o arquivo
+CSV_PATH = DATA_DIR / "plantas_panc.csv"  # Caminho corrigido
 API_URL = "https://my-api.plantnet.org/v2/identify/all"
 
 # ======================
@@ -40,33 +40,32 @@ def load_data():
         # Verifica se o arquivo existe
         if not CSV_PATH.exists():
             st.error(f"Arquivo CSV não encontrado em: {CSV_PATH}")
-            st.info(f"Por favor, verifique se o arquivo 'plantas_panc.csv' está na pasta 'data'")
+            st.info("Tentando baixar automaticamente...")
             
-            # Tenta baixar o arquivo automaticamente
             try:
+                # Tenta baixar do GitHub
                 download_csv()
-                if CSV_PATH.exists():
-                    st.success("Arquivo baixado automaticamente com sucesso!")
-                else:
+                if not CSV_PATH.exists():
+                    st.error("Falha ao baixar o arquivo CSV")
                     return pd.DataFrame()
-            except Exception as download_error:
-                st.error(f"Falha ao baixar arquivo: {str(download_error)}")
+            except Exception as e:
+                st.error(f"Erro ao baixar: {str(e)}")
                 return pd.DataFrame()
 
-        # Tenta diferentes encodings
-        encodings = ['utf-8', 'utf-8-sig', 'latin1']
-        for encoding in encodings:
-            try:
-                df = pd.read_csv(CSV_PATH, encoding=encoding)
-                if not df.empty:
-                    # Pré-processamento
-                    df = preprocess_data(df)
-                    return df
-            except (UnicodeDecodeError, pd.errors.EmptyDataError):
-                continue
-
-        st.error("Falha ao ler o arquivo CSV - arquivo pode estar vazio ou corrompido")
-        return pd.DataFrame()
+        # Tenta ler o arquivo
+        try:
+            df = pd.read_csv(CSV_PATH, encoding='utf-8')
+            if df.empty:
+                st.error("O arquivo CSV está vazio!")
+                return pd.DataFrame()
+            
+            # Pré-processamento
+            df = preprocess_data(df)
+            return df
+            
+        except Exception as e:
+            st.error(f"Erro ao ler CSV: {str(e)}")
+            return pd.DataFrame()
 
     except Exception as e:
         st.error(f"Erro crítico: {str(e)}")
@@ -77,6 +76,9 @@ def download_csv():
     csv_url = "https://raw.githubusercontent.com/michaufsc/pancs/main/plantas_panc.csv"
     response = requests.get(csv_url, timeout=10)
     response.raise_for_status()
+    
+    # Garante que a pasta existe
+    DATA_DIR.mkdir(exist_ok=True)
     
     with open(CSV_PATH, 'wb') as f:
         f.write(response.content)
@@ -100,7 +102,6 @@ def display_plant_info(row):
         st.markdown("**📋 Informações básicas**")
         st.write(f"**Nomes populares:** {row.get('nomes_populares', 'N/A')}")
         st.write(f"**Família:** {row.get('familia', 'N/A')}")
-        st.write(f"**Hábito:** {row.get('habito', 'N/A')}")
     
     with col2:
         st.markdown("**🍽️ Uso culinário**")
@@ -137,26 +138,24 @@ def main():
         st.error("""
         **Dados não carregados!**  
         Verifique:  
-        1. Arquivo `plantas_panc.csv` existe na pasta `data/`  
-        2. O arquivo não está vazio  
-        3. O formato do arquivo está correto
+        1. Arquivo `plantas_panc.csv` existe em `data/`  
+        2. O arquivo tem conteúdo válido  
+        3. O formato está correto
         """)
         
-        if st.button("🔄 Tentar baixar arquivo novamente"):
+        if st.button("🔄 Tentar baixar novamente"):
             try:
                 download_csv()
-                st.experimental_rerun()
+                st.rerun()
             except Exception as e:
                 st.error(f"Falha ao baixar: {str(e)}")
-        
         return
 
     # Seleção de modo
     mode = st.radio(
         "Selecione o modo:",
         ["📷 Identificar por imagem", "🔍 Buscar por nome"],
-        horizontal=True,
-        key="mode_selector"
+        horizontal=True
     )
 
     if mode == "📷 Identificar por imagem":
@@ -170,12 +169,10 @@ def identify_by_image(df):
     
     uploaded_file = st.file_uploader(
         "Selecione uma imagem (JPG/PNG)",
-        type=["jpg", "jpeg", "png"],
-        accept_multiple_files=False,
-        key="image_uploader"
+        type=["jpg", "jpeg", "png"]
     )
     
-    if uploaded_file and st.button("🔍 Identificar", type="primary", key="identify_button"):
+    if uploaded_file and st.button("🔍 Identificar", type="primary"):
         with st.spinner("Analisando a planta..."):
             try:
                 # Configuração da API
@@ -228,8 +225,7 @@ def search_by_name(df):
     
     search_term = st.text_input(
         "Digite o nome da planta:",
-        placeholder="Ex: Ora-pro-nóbis, Talinum paniculatum...",
-        key="plant_search"
+        placeholder="Ex: Ora-pro-nóbis, Talinum paniculatum..."
     )
     
     if search_term:
